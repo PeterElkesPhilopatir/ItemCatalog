@@ -287,6 +287,6 @@ def deleteItem(category_id, menu_id):
 
 
 if __name__ == '__main__':
-    app.secret_key = 'peter key'
+    app.secret_key = 'peter super key'
     app.debug = True
     app.run(host='0.0.0.0', port=5000)
