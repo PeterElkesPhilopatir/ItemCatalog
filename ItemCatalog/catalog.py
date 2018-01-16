@@ -19,12 +19,7 @@ engine = create_engine('sqlite:///catalog.db')
 Base.metadata.bind = engine
 
 DBSession = sessionmaker(bind=engine)
-session = DBSession()
-
-
-# CLIENT_ID = json.loads(
-#     open('client_secret.json', 'r').read())['web']['client_id']
-# APPLICATION_NAME = "Item Catalog"
+database_session = DBSession()
 
 
 @app.route('/gconnect', methods=['POST'])
@@ -47,6 +42,7 @@ def gconnect():
         if result.get('error') is not None:
             response = make_response(json.dumps(result.get('error')), 500)
             response.headers['Content-Type'] = 'application/json'
+            print "errorrrrrrr!!!!!!!!!!"
             return response
         gplus_id = credentials.id_token['sub']
 
@@ -63,21 +59,20 @@ def gconnect():
         data = answer.json()
 
         login_session['state'] = data['email']
+        print ('state'+login_session['state'])
         login_session['username'] = data['name']
         id = int(data['id'])
         login_session['id'] = id % 1000
         login_session['access_token'] = access_token
         login_session['provider'] = 'google'
+
         return redirect(url_for('showCategories'))
     else:
         return "You already logged in "
 
-
-# return redirect(url_for('showCategories'))
-
-
 @app.route('/fbconnect', methods=['POST'])
 def fbconnet():
+
     # if login_session['state'] == None:  # validate user state
     access_token = request.data  # get access token from client
 
@@ -89,6 +84,7 @@ def fbconnet():
     url = 'https://graph.facebook.com/oauth/access_token?grant_type=fb_exchange_token&client_id=%s&client_secret=%s&fb_exchange_token=%s' % (
         app_id, app_secret, access_token)
 
+    print "URL>>"+url
     h = httplib2.Http()
     result = json.loads(h.request(url, 'GET')[1])
 
@@ -114,43 +110,68 @@ def fbconnet():
     # session['username'] = data["name"]
     # session['state'] = data["email"]
 
-
 @app.route('/category/<int:category_id>/menu/JSON')
 def categoryMenuJSON(category_id):
-    category = session.query(Category).filter_by(id=category_id).one()
-    items = session.query(Item).filter_by(
+    category = database_session.query(Category).filter_by(id=category_id).one()
+    items = database_session.query(Item).filter_by(
         category_id=category_id).all()
     return jsonify(Items=[i.serialize for i in items])
 
-
 @app.route('/category/<int:category_id>/menu/<int:menu_id>/JSON')
 def menuItemJSON(category_id, menu_id):
-    Menu_Item = session.query(Item).filter_by(id=menu_id).one()
+    Menu_Item = database_session.query(Item).filter_by(id=menu_id).one()
     return jsonify(Menu_Item=Menu_Item.serialize)
-
 
 @app.route('/category/JSON')
 def categoriesJSON():
-    categories = session.query(Category).all()
+    categories = database_session.query(Category).all()
     return jsonify(categories=[r.serialize for r in categories])
 
-
-#
-# # Create anti-forgery state token
+# Create anti-forgery state token
 # @app.route('/login')
-# def showLogin():
-#     state = ''.join(random.choice(string.ascii_uppercase + string.digits)
+# def login():
+#     state = ''.join(random.choice  (string.ascii_uppercase + string.digits)
 #                     for x in xrange(32))
 #     login_session['state'] = state
 #     # return "The current session state is %s" % login_session['state']
 #     return render_template('login.html',STATE = state)
 
+@app.route('/logout', methods=['POST', 'GET'])
+def logout():
+    if request.method == 'POST':
+        if login_session['provider'] == 'facebook' and database_session['state'] is not None:
+            access_token = login_session['access_token']
+            facebook_id = login_session['id']
+            # logout user from facebook
+            url = 'https://graph.facebook.com/%s/permissions?access_token=%s' % (facebook_id, access_token)
+            h = httplib2.Http()
+            result = h.request(url, 'DELETE')[1]
+            # delete user session
+            del login_session['state']
+            del login_session['username']
+            del login_session['access_token']
+            del login_session['id']
 
+
+        elif login_session['provider'] == 'google' and login_session['state'] is not None:
+            access_token = login_session['access_token']
+            # logout user from google
+            url = 'https://accounts.google.com/o/oauth2/revoke?token=%s' % access_token
+            h = httplib2.Http()
+            result = h.request(url, 'GET')[0]
+            # delete user session and logout user from menu item app
+            del login_session['state']
+            del login_session['username']
+            del login_session['access_token']
+            del login_session['id']
+
+        return redirect(url_for('showCategories'))
 
 # Show all categories
 @app.route('/')
 @app.route('/category/')
 def showCategories():
+
     if 'state' not in login_session:  # init all session with none values
         login_session['state'] = None
     if 'username' not in login_session:
@@ -158,8 +179,9 @@ def showCategories():
     if 'id' not in login_session:
         login_session['id'] = None
 
-    categories = session.query(Category).all()
+    categories = database_session.query(Category).all()
     # return "This page will show all my categories"
+    # print "size >> "+str(len(categories))
     return render_template('categories.html', categories=categories)
 
 
@@ -168,8 +190,8 @@ def showCategories():
 def newCategory():
     if request.method == 'POST':
         newCategory = Category(name=request.form['name'])
-        session.add(newCategory)
-        session.commit()
+        database_session.add(newCategory)
+        database_session.commit()
         return redirect(url_for('showCategories'))
     else:
         return render_template('newCategory.html')
@@ -177,11 +199,9 @@ def newCategory():
 
 
 # Edit a category
-
-
 @app.route('/category/<int:category_id>/edit/', methods=['GET', 'POST'])
 def editCategory(category_id):
-    editedCategory = session.query(Category).filter_by(id=category_id).one()
+    editedCategory = database_session.query(Category).filter_by(id=category_id).one()
     if request.method == 'POST':
         if request.form['name']:
             editedCategory.name = request.form['name']
@@ -194,15 +214,13 @@ def editCategory(category_id):
 
 
 # Delete a category
-
-
 @app.route('/category/<int:category_id>/delete/', methods=['GET', 'POST'])
 def deleteCategory(category_id):
-    categoryToDelete = session.query(
+    categoryToDelete = database_session.query(
         Category).filter_by(id=category_id).one()
     if request.method == 'POST':
-        session.delete(categoryToDelete)
-        session.commit()
+        database_session.delete(categoryToDelete)
+        database_session.commit()
         return redirect(
             url_for('showCategories', category_id=category_id))
     else:
@@ -215,24 +233,21 @@ def deleteCategory(category_id):
 @app.route('/category/<int:category_id>/')
 @app.route('/category/<int:category_id>/menu/')
 def showMenu(category_id):
-    category = session.query(Category).filter_by(id=category_id).one()
-    items = session.query(Item).filter_by(category_id=category_id).all()
+    category = database_session.query(Category).filter_by(id=category_id).one()
+    items = database_session.query(Item).filter_by(category_id=category_id).all()
     return render_template('menu.html', items=items, category=category)
     # return 'This page is the menu for category %s' % category_id
 
 
 # Create a new menu item
-
-
-@app.route(
-    '/category/<int:category_id>/menu/new/', methods=['GET', 'POST'])
+@app.route('/category/<int:category_id>/menu/new/', methods=['GET', 'POST'])
 def newItem(category_id):
     if request.method == 'POST':
         if login_session['state'] is not None:
             newItem = Item(name=request.form['name'], description=request.form[
                 'description'], price=request.form['price'], course=request.form['course'], category_id=category_id)
-            session.add(newItem)
-            session.commit()
+            database_session.add(newItem)
+            database_session.commit()
 
             return redirect(url_for('showMenu', category_id=category_id))
         else:
@@ -248,7 +263,7 @@ def newItem(category_id):
 @app.route('/category/<int:category_id>/menu/<int:menu_id>/edit',
            methods=['GET', 'POST'])
 def editItem(category_id, menu_id):
-    editedItem = session.query(Item).filter_by(id=menu_id).one()
+    editedItem = database_session.query(Item).filter_by(id=menu_id).one()
     if request.method == 'POST':
 
         if request.form['name']:
@@ -259,8 +274,8 @@ def editItem(category_id, menu_id):
             editedItem.price = request.form['price']
         if request.form['course']:
             editedItem.course = request.form['course']
-        session.add(editedItem)
-        session.commit()
+        database_session.add(editedItem)
+        database_session.commit()
         return redirect(url_for('showMenu', category_id=category_id))
     else:
 
@@ -271,15 +286,13 @@ def editItem(category_id, menu_id):
 
 
 # Delete a menu item
-
-
 @app.route('/category/<int:category_id>/menu/<int:menu_id>/delete',
            methods=['GET', 'POST'])
 def deleteItem(category_id, menu_id):
-    itemToDelete = session.query(Item).filter_by(id=menu_id).one()
+    itemToDelete = database_session.query(Item).filter_by(id=menu_id).one()
     if request.method == 'POST':
-        session.delete(itemToDelete)
-        session.commit()
+        database_session.delete(itemToDelete)
+        database_session.commit()
         return redirect(url_for('showMenu', category_id=category_id))
     else:
         return render_template('deleteItem.html', item=itemToDelete)
