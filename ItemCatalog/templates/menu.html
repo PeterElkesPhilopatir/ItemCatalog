@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-
+{% block content %}
 
 <html>
 	
@@ -133,6 +133,8 @@
 		<a href = "{{url_for('newItem', category_id = category.id )}}">Create New Item</a>
 			{% endif %}
 </div>
+		{%endblock%}
+
 	</body>
 
 </html>

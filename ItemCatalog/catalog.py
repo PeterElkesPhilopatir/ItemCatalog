@@ -59,7 +59,7 @@ def gconnect():
         data = answer.json()
 
         login_session['state'] = data['email']
-        print ('state'+login_session['state'])
+        print ('state' + login_session['state'])
         login_session['username'] = data['name']
         id = int(data['id'])
         login_session['id'] = id % 1000
@@ -70,9 +70,9 @@ def gconnect():
     else:
         return "You already logged in "
 
+
 @app.route('/fbconnect', methods=['POST'])
 def fbconnet():
-
     # if login_session['state'] == None:  # validate user state
     access_token = request.data  # get access token from client
 
@@ -84,7 +84,7 @@ def fbconnet():
     url = 'https://graph.facebook.com/oauth/access_token?grant_type=fb_exchange_token&client_id=%s&client_secret=%s&fb_exchange_token=%s' % (
         app_id, app_secret, access_token)
 
-    print "URL>>"+url
+    print "URL>>" + url
     h = httplib2.Http()
     result = json.loads(h.request(url, 'GET')[1])
 
@@ -102,13 +102,14 @@ def fbconnet():
     login_session['id'] = id % 1000
     login_session['provider'] = 'facebook'
     login_session['access_token'] = access_token
-    print "access>>"+access_token
-    print "name>>"+login_session['username']
+    print "access>>" + access_token
+    print "name>>" + login_session['username']
 
     return redirect(url_for('showCategories'))
 
     # session['username'] = data["name"]
     # session['state'] = data["email"]
+
 
 @app.route('/category/<int:category_id>/menu/JSON')
 def categoryMenuJSON(category_id):
@@ -117,15 +118,18 @@ def categoryMenuJSON(category_id):
         category_id=category_id).all()
     return jsonify(Items=[i.serialize for i in items])
 
+
 @app.route('/category/<int:category_id>/menu/<int:menu_id>/JSON')
 def menuItemJSON(category_id, menu_id):
     Menu_Item = database_session.query(Item).filter_by(id=menu_id).one()
     return jsonify(Menu_Item=Menu_Item.serialize)
 
+
 @app.route('/category/JSON')
 def categoriesJSON():
     categories = database_session.query(Category).all()
     return jsonify(categories=[r.serialize for r in categories])
+
 
 # Create anti-forgery state token
 # @app.route('/login')
@@ -167,11 +171,11 @@ def logout():
 
         return redirect(url_for('showCategories'))
 
+
 # Show all categories
 @app.route('/')
 @app.route('/category/')
 def showCategories():
-
     if 'state' not in login_session:  # init all session with none values
         login_session['state'] = None
     if 'username' not in login_session:
@@ -189,11 +193,18 @@ def showCategories():
 @app.route('/category/new/', methods=['GET', 'POST'])
 def newCategory():
     if request.method == 'POST':
-        newCategory = Category(name=request.form['name'])
-        database_session.add(newCategory)
-        database_session.commit()
-        return redirect(url_for('showCategories'))
+        if login_session['state'] is not None:
+            uid = login_session['id']
+            newCategory = Category(user_id=uid, name=request.form['name'])
+            database_session.add(newCategory)
+            database_session.commit()
+            return redirect(url_for('showCategories'))
+        else:
+            print "unauthorized"
+            return redirect(url_for('showCategories'))
+
     else:
+
         return render_template('newCategory.html')
         # return "This page will be for making a new category"
 
@@ -202,11 +213,18 @@ def newCategory():
 @app.route('/category/<int:category_id>/edit/', methods=['GET', 'POST'])
 def editCategory(category_id):
     editedCategory = database_session.query(Category).filter_by(id=category_id).one()
+
     if request.method == 'POST':
-        if request.form['name']:
-            editedCategory.name = request.form['name']
-            return redirect(url_for('showCategories'))
+        if login_session['state'] is not None:
+            if editedCategory.user_id == login_session['id']:
+                if request.form['name']:
+                    editedCategory.name = request.form['name']
+                    return redirect(url_for('showCategories'))
+            else:
+                return render_template('editCategory.html', category=editedCategory)
     else:
+        print "unauthorized"
+
         return render_template(
             'editCategory.html', category=editedCategory)
 
@@ -216,13 +234,22 @@ def editCategory(category_id):
 # Delete a category
 @app.route('/category/<int:category_id>/delete/', methods=['GET', 'POST'])
 def deleteCategory(category_id):
-    categoryToDelete = database_session.query(
-        Category).filter_by(id=category_id).one()
+    categoryToDelete = database_session.query(Category).filter_by(id=category_id).one()
     if request.method == 'POST':
-        database_session.delete(categoryToDelete)
-        database_session.commit()
-        return redirect(
-            url_for('showCategories', category_id=category_id))
+        if login_session['state'] is not None:
+            if categoryToDelete.user_id == login_session['id']:
+                database_session.delete(categoryToDelete)
+
+                itemsToDelete = database_session.query(Item).filter_by(category_id=category_id).one()
+                database_session.delete(itemsToDelete)
+
+                database_session.commit()
+
+                return redirect(url_for('showCategories', category_id=category_id))
+            else:
+                print "unauthorized"
+
+                return redirect(url_for('showCategories', category_id=category_id))
     else:
         return render_template(
             'deleteCategory.html', category=categoryToDelete)
@@ -243,14 +270,20 @@ def showMenu(category_id):
 @app.route('/category/<int:category_id>/menu/new/', methods=['GET', 'POST'])
 def newItem(category_id):
     if request.method == 'POST':
+        get_category = database_session.query(Category).filter_by(id=category_id).one()
         if login_session['state'] is not None:
-            newItem = Item(name=request.form['name'], description=request.form[
-                'description'], price=request.form['price'], course=request.form['course'], category_id=category_id)
-            database_session.add(newItem)
-            database_session.commit()
+            if get_category.user_id == login_session['id']:
+                newItem = Item(user_id=login_session['id'],name=request.form['name'], description=request.form[
+                    'description'], price=request.form['price'], course=request.form['course'], category_id=category_id)
+                database_session.add(newItem)
+                database_session.commit()
+                return redirect(url_for('showMenu', category_id=category_id))
+            else:
+                return redirect(url_for('showMenu', category_id=category_id))
 
-            return redirect(url_for('showMenu', category_id=category_id))
         else:
+            print "unauthorized"
+
             return "you should log in to create item"
     else:
         return render_template('newitem.html', category_id=category_id)
@@ -265,22 +298,24 @@ def newItem(category_id):
 def editItem(category_id, menu_id):
     editedItem = database_session.query(Item).filter_by(id=menu_id).one()
     if request.method == 'POST':
+        if editedItem.user_id == login_session['id']:
+            if request.form['name']:
+                editedItem.name = request.form['name']
+            if request.form['description']:
+                editedItem.description = request.form['name']
+            if request.form['price']:
+                editedItem.price = request.form['price']
+            if request.form['course']:
+                editedItem.course = request.form['course']
+            database_session.add(editedItem)
+            database_session.commit()
+            return redirect(url_for('showMenu', category_id=category_id))
+        else:
+            print "unauthorized"
 
-        if request.form['name']:
-            editedItem.name = request.form['name']
-        if request.form['description']:
-            editedItem.description = request.form['name']
-        if request.form['price']:
-            editedItem.price = request.form['price']
-        if request.form['course']:
-            editedItem.course = request.form['course']
-        database_session.add(editedItem)
-        database_session.commit()
-        return redirect(url_for('showMenu', category_id=category_id))
+            return redirect(url_for('showMenu', category_id=category_id))
     else:
-
-        return render_template(
-            'edititem.html', category_id=category_id, menu_id=menu_id, item=editedItem)
+        return render_template('edititem.html', category_id=category_id, menu_id=menu_id, item=editedItem)
 
         # return 'This page is for editing menu item %s' % menu_id
 
@@ -291,9 +326,14 @@ def editItem(category_id, menu_id):
 def deleteItem(category_id, menu_id):
     itemToDelete = database_session.query(Item).filter_by(id=menu_id).one()
     if request.method == 'POST':
-        database_session.delete(itemToDelete)
-        database_session.commit()
-        return redirect(url_for('showMenu', category_id=category_id))
+        print'itemUserID>>'+str(itemToDelete.user_id) +'session'+str(login_session['id'])
+        if itemToDelete.user_id == login_session['id']:
+            database_session.delete(itemToDelete)
+            database_session.commit()
+            return redirect(url_for('showMenu', category_id=category_id))
+        else:
+            print "unauthorized"
+            return redirect(url_for('showMenu', category_id=category_id))
     else:
         return render_template('deleteItem.html', item=itemToDelete)
         # return "This page is for deleting menu item %s" % menu_id
